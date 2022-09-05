@@ -1,33 +1,41 @@
 @group(0) @binding(0)
 var texture: texture_storage_2d<rgba8unorm, read_write>;
 
-// @group(0) @binding(1)
-// var rules: texture_storage_2d<rgba8unorm, read>;
+@group(0) @binding(1)
+var rules: texture_storage_2d<rgba32float, read>;
 
-fn get_rule(location: vec2<i32>, offset_x: i32, offset_y: i32, channel: i32) -> vec3<f32> {
-    return vec3(1.0, 1.0, 1.0);
+fn kernel_size() -> i32 {
+    return 31;
 }
 
-fn get_state(location: vec2<i32>, offset_x: i32, offset_y: i32) -> vec3<f32> {
-    return 2.0 * textureLoad(texture, location + vec2<i32>(offset_x, offset_y)).rgb - 1.0;
+fn get_size() -> vec2<i32> {
+    return vec2(1528, 856);
+}
+
+fn get_rule(x: i32, y: i32, channel: i32) -> vec3<f32> {
+    return textureLoad(rules, vec2<i32>(x, channel * 3 + y)).rgb;
+}
+
+fn get_state(location: vec2<i32>, x: i32, y: i32) -> vec3<f32> {
+    let index = ((location + vec2<i32>(x, y)) + get_size() ) % get_size();
+    return textureLoad(texture, index).rgb;
 }
 
 fn new_state(location: vec2<i32>) -> vec3<f32> {
+    let k = kernel_size();
     var color = vec3<f32>(0.0, 0.0, 0.0);
     for (var c: i32 = 0; c <= 2; c++) {
-        var weight = 0.0;
         var sum = 0.0;
-        for (var x: i32 = -1; x <= 1; x++) {
-            for (var y: i32 = -1; y <= 1; y++) {
-                let rule = get_rule(location, x, y, c);
-                weight += abs(rule.r) + abs(rule.g) + abs(rule.b);
-                let state = get_state(location, x, y);
+        for (var x: i32 = 0; x < k; x++) {
+            for (var y: i32 = 0; y < k; y++) {
+                let rule = get_rule(x, y, c);
+                let state = get_state(location, x - k / 2, y - k / 2);
                 sum += rule.r * state.r + rule.g * state.g + rule.b * state.b;
             }
         }
-        color[c] = sum / weight;
+        color[c] = clamp((tanh(sum) + 1.0), 0.0, 1.0);
     }
-    return (color + 1.0) / 2.0;
+    return color;
 }
 
 @compute @workgroup_size(8, 8, 1)

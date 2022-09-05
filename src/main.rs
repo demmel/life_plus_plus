@@ -14,7 +14,9 @@ use rand::{thread_rng, Rng};
 use std::borrow::Cow;
 
 const SIZE: (u32, u32) = (1528, 856);
+// const SIZE: (u32, u32) = (3840, 2160);
 const WORKGROUP_SIZE: u32 = 8;
+const KERNEL_SIZE: usize = 31;
 
 fn main() {
     App::new()
@@ -34,7 +36,7 @@ fn main() {
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut rng = thread_rng();
 
-    let mut image = Image::new_fill(
+    let mut view = Image::new_fill(
         Extent3d {
             width: SIZE.0,
             height: SIZE.1,
@@ -45,29 +47,72 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         TextureFormat::Rgba8Unorm,
     );
 
-    for pixel in image.data.chunks_mut(4) {
+    for pixel in view.data.chunks_mut(4) {
         for x in pixel.iter_mut().take(3) {
             *x = rng.gen_range(0..=255);
         }
     }
 
-    image.texture_descriptor.usage =
+    view.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    let image = images.add(image);
+    let view = images.add(view);
 
     commands.spawn_bundle(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(SIZE.0 as f32, SIZE.1 as f32)),
             ..default()
         },
-        texture: image.clone(),
+        texture: view.clone(),
         ..default()
     });
+
+    let mut rules = vec![1.0; 3 * KERNEL_SIZE * KERNEL_SIZE * 4];
+
+    for pixel in rules.chunks_mut(4) {
+        for x in pixel.iter_mut().take(3) {
+            *x = rng.gen_range(-1.0..=1.0);
+        }
+    }
+
+    // #[rustfmt::skip]
+    // let mut rules = vec![
+    //     // R
+    //     1.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   1.0, 0.0, 0.0,   1.0,
+    //     // G
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 1.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     // B
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 1.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    //     0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,   0.0, 0.0, 0.0,   1.0,
+    // ];
+
+    fn vf_to_u8(v: &[f32]) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * 4) }
+    }
+
+    let mut rules = Image::new(
+        Extent3d {
+            width: KERNEL_SIZE as u32,
+            height: KERNEL_SIZE as u32 * 3,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        vf_to_u8(&rules).to_vec(),
+        TextureFormat::Rgba32Float,
+    );
+
+    rules.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+
+    let rules = images.add(rules);
+
+    commands.insert_resource(GameOfLifeRenderResources { view, rules });
+
     commands.spawn_bundle(Camera2dBundle::default());
-
-    commands.insert_resource(GameOfLifeImage(image));
-
-    // commands.insert_resource(resource)
 }
 
 pub struct GameOfLifeComputePlugin;
@@ -76,7 +121,7 @@ impl Plugin for GameOfLifeComputePlugin {
     fn build(&self, app: &mut App) {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
-        app.add_plugin(ExtractResourcePlugin::<GameOfLifeImage>::default());
+        app.add_plugin(ExtractResourcePlugin::<GameOfLifeRenderResources>::default());
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .init_resource::<GameOfLifePipeline>()
@@ -93,8 +138,11 @@ impl Plugin for GameOfLifeComputePlugin {
     }
 }
 
-#[derive(Clone, Deref, ExtractResource)]
-struct GameOfLifeImage(Handle<Image>);
+#[derive(Clone, ExtractResource)]
+struct GameOfLifeRenderResources {
+    view: Handle<Image>,
+    rules: Handle<Image>,
+}
 
 struct GameOfLifeImageBindGroup(BindGroup);
 
@@ -102,17 +150,24 @@ fn queue_bind_group(
     mut commands: Commands,
     pipeline: Res<GameOfLifePipeline>,
     gpu_images: Res<RenderAssets<Image>>,
-    game_of_life_image: Res<GameOfLifeImage>,
+    game_of_life_render_resources: Res<GameOfLifeRenderResources>,
     render_device: Res<RenderDevice>,
 ) {
-    let view = &gpu_images[&game_of_life_image.0];
+    let view = &gpu_images[&game_of_life_render_resources.view];
+    let rules = &gpu_images[&game_of_life_render_resources.rules];
     let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &pipeline.texture_bind_group_layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::TextureView(&view.texture_view),
-        }],
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&view.texture_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(&rules.texture_view),
+            },
+        ],
     });
     commands.insert_resource(GameOfLifeImageBindGroup(bind_group));
 }
@@ -129,16 +184,28 @@ impl FromWorld for GameOfLifePipeline {
                 .resource::<RenderDevice>()
                 .create_bind_group_layout(&BindGroupLayoutDescriptor {
                     label: None,
-                    entries: &[BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            access: StorageTextureAccess::ReadWrite,
-                            format: TextureFormat::Rgba8Unorm,
-                            view_dimension: TextureViewDimension::D2,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::StorageTexture {
+                                access: StorageTextureAccess::ReadWrite,
+                                format: TextureFormat::Rgba8Unorm,
+                                view_dimension: TextureViewDimension::D2,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::StorageTexture {
+                                access: StorageTextureAccess::ReadOnly,
+                                format: TextureFormat::Rgba32Float,
+                                view_dimension: TextureViewDimension::D2,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
         let shader = world
             .resource::<AssetServer>()
