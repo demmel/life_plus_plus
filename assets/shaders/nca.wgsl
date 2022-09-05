@@ -9,7 +9,7 @@ fn kernel_size() -> i32 {
 }
 
 fn get_size() -> vec2<i32> {
-    return vec2(1528, 856);
+    return vec2(760, 760);
 }
 
 fn get_rule(x: i32, y: i32, channel: i32) -> vec3<f32> {
@@ -33,7 +33,7 @@ fn new_state(location: vec2<i32>) -> vec3<f32> {
                 sum += rule.r * state.r + rule.g * state.g + rule.b * state.b;
             }
         }
-        color[c] = clamp((tanh(sum) + 1.0), 0.0, 1.0);
+        color[c] = (tanh(sum) + 1.0) / 2.0;
     }
     return color;
 }

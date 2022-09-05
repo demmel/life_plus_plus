@@ -6,7 +6,7 @@ use bevy::{
 };
 use nca::{NeuralCellularAutomataComputePlugin, NeuralCellularAutomataSize};
 
-const SIZE: (u32, u32) = (1528, 856);
+const SIZE: (u32, u32) = (760, 760);
 
 fn main() {
     App::new()
