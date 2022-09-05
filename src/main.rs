@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
     window::{WindowDescriptor, WindowMode},
 };
-use nca::{NeuralCellularAutomataComputePlugin, NeuralCellularAutomataSize};
+use nca::{NeuralCellularAutomataConfig, NeuralCellularAutomataPlugin};
 
 const SIZE: (u32, u32) = (760, 760);
 
@@ -17,8 +17,12 @@ fn main() {
             mode: WindowMode::BorderlessFullscreen,
             ..default()
         })
-        .insert_resource(NeuralCellularAutomataSize(SIZE.0, SIZE.1))
+        .insert_resource(NeuralCellularAutomataConfig {
+            size: (SIZE.0, SIZE.1),
+            num_variants: 2,
+            kernel_size: 31,
+        })
         .add_plugins(DefaultPlugins)
-        .add_plugin(NeuralCellularAutomataComputePlugin)
+        .add_plugin(NeuralCellularAutomataPlugin)
         .run();
 }
