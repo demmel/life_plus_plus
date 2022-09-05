@@ -27,7 +27,8 @@ impl Plugin for NeuralCellularAutomataComputePlugin {
         // for operation on by the compute shader and display on the sprite.
         app.add_plugin(ExtractResourcePlugin::<NeuralCellularAutomataRenderResources>::default())
             .add_plugin(ExtractResourcePlugin::<NeuralCellularAutomataSize>::default())
-            .add_startup_system(setup);
+            .add_startup_system(setup)
+            .add_system(regenerate_world);
 
         let render_app = app.sub_app_mut(RenderApp);
         render_app
@@ -47,6 +48,44 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     size: Res<NeuralCellularAutomataSize>,
 ) {
+    let view = generate_view_texture(&size);
+    let view = images.add(view);
+
+    commands.spawn_bundle(SpriteBundle {
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(size.0 as f32, size.1 as f32)),
+            ..default()
+        },
+        texture: view.clone(),
+        ..default()
+    });
+
+    let rules = generate_rules_texture();
+    let rules = images.add(rules);
+
+    commands.insert_resource(NeuralCellularAutomataRenderResources { view, rules });
+
+    commands.spawn_bundle(Camera2dBundle::default());
+}
+
+fn regenerate_world(
+    keys: Res<Input<KeyCode>>,
+    mut images: ResMut<Assets<Image>>,
+    mut render_resources: ResMut<NeuralCellularAutomataRenderResources>,
+    size: Res<NeuralCellularAutomataSize>,
+) {
+    if !keys.just_pressed(KeyCode::Space) {
+        return;
+    }
+
+    let view = generate_view_texture(&size);
+    render_resources.view = images.set(&render_resources.view, view);
+
+    let rules = generate_rules_texture();
+    render_resources.rules = images.set(&render_resources.rules, rules);
+}
+
+fn generate_view_texture(size: &NeuralCellularAutomataSize) -> Image {
     let mut rng = thread_rng();
 
     let mut view = Image::new_fill(
@@ -68,16 +107,11 @@ fn setup(
 
     view.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    let view = images.add(view);
+    view
+}
 
-    commands.spawn_bundle(SpriteBundle {
-        sprite: Sprite {
-            custom_size: Some(Vec2::new(size.0 as f32, size.1 as f32)),
-            ..default()
-        },
-        texture: view.clone(),
-        ..default()
-    });
+fn generate_rules_texture() -> Image {
+    let mut rng = thread_rng();
 
     let mut rules = vec![1.0; 3 * KERNEL_SIZE * KERNEL_SIZE * 4];
 
@@ -105,11 +139,7 @@ fn setup(
     rules.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
 
-    let rules = images.add(rules);
-
-    commands.insert_resource(NeuralCellularAutomataRenderResources { view, rules });
-
-    commands.spawn_bundle(Camera2dBundle::default());
+    rules
 }
 
 #[derive(Clone, ExtractResource)]
