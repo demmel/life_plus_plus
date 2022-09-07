@@ -15,7 +15,7 @@ use bevy::{
 };
 use rand::prelude::*;
 
-use super::{NCARules, NeuralCellularAutomataConfig};
+use super::{NCARules, NeuralCellularAutomataConfig, SelectedRules};
 
 const WORKGROUP_SIZE: u32 = 8;
 
@@ -99,14 +99,17 @@ fn setup(
 fn regenerate_world(
     config: Res<NeuralCellularAutomataConfig>,
     rules: Res<NCARules>,
+    selected_rules: Res<SelectedRules>,
     mut images: ResMut<Assets<Image>>,
     mut render_resources: ResMut<NeuralCellularAutomataRenderResources>,
 ) {
-    if !rules.is_changed() {
+    if !rules.is_changed() && !selected_rules.is_changed() {
         return;
     }
 
-    for (rule, state) in rules.0.iter().zip(render_resources.0.iter_mut()) {
+    for (rule, state) in selected_rules.0.iter().zip(render_resources.0.iter_mut()) {
+        let rule = &rules.rules()[*rule];
+
         let view = generate_view_texture(config.size);
         state.view = images.set(&state.view, view);
 
