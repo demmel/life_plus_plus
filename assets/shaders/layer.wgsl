@@ -7,8 +7,9 @@ var rules: texture_storage_2d<rgba32float, read>;
 @group(0) @binding(2)
 var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
-fn kernel_size() -> vec2<i32> {
-    return textureDimensions(rules);
+fn kernel_size() -> i32 {
+    let texture_size = textureDimensions(rules);
+    return texture_size.x;
 }
 
 fn get_size() -> vec2<i32> {
@@ -32,10 +33,10 @@ fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     var color3 = vec3<f32>(0.0, 0.0, 0.0);
     for (var c: i32 = 0; c <= 2; c++) {
         var sum = 0.0;
-        for (var x: i32 = 0; x < k[0]; x++) {
-            for (var y: i32 = 0; y < k[1]; y++) {
+        for (var x: i32 = 0; x < k; x++) {
+            for (var y: i32 = 0; y < k; y++) {
                 let rule = get_rule(x, y, c);
-                let state = get_state(location, x - k[0] / 2, y - k[1] / 2);
+                let state = get_state(location, x - k / 2, y - k / 2);
                 sum += rule.r * state.r + rule.g * state.g + rule.b * state.b;
             }
         }
