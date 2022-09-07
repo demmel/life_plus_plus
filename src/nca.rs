@@ -15,6 +15,7 @@ pub struct NeuralCellularAutomataConfig {
     pub population_size: usize,
     pub num_variants: usize,
     pub kernel_size: usize,
+    pub num_layers: usize,
 }
 
 impl Plugin for NeuralCellularAutomataPlugin {
@@ -28,7 +29,7 @@ impl Plugin for NeuralCellularAutomataPlugin {
 fn setup(mut commands: Commands, config: Res<NeuralCellularAutomataConfig>) {
     let rules = NCARules::new(
         (0..config.population_size)
-            .map(|_| NCARule::rand(config.kernel_size))
+            .map(|_| NCARule::rand(config.kernel_size, config.num_layers))
             .collect(),
     );
 
@@ -65,7 +66,7 @@ fn rank_selected(
             new_rules.push(a);
             new_rules.push(b)
         }
-        new_rules.push(NCARule::rand(config.kernel_size));
+        new_rules.push(NCARule::rand(config.kernel_size, config.num_layers));
 
         *rules = NCARules::new(new_rules);
     }
@@ -135,21 +136,26 @@ impl NCARules {
 }
 
 #[derive(Clone)]
-struct NCARule(Vec<f32>);
+struct NCARule(Vec<Vec<f32>>);
 
 impl NCARule {
-    fn rand(kernel_size: usize) -> Self {
+    fn rand(kernel_size: usize, num_layers: usize) -> Self {
         let mut rng = thread_rng();
 
-        let mut rules = vec![1.0; 3 * kernel_size * kernel_size * 4];
+        let mut layers = Vec::with_capacity(num_layers);
+        for _ in 0..num_layers {
+            let mut rules = vec![1.0; 3 * kernel_size * kernel_size * 4];
 
-        for pixel in rules.chunks_mut(4) {
-            for x in pixel.iter_mut().take(3) {
-                *x = rng.gen_range(-1.0..=1.0);
+            for pixel in rules.chunks_mut(4) {
+                for x in pixel.iter_mut().take(3) {
+                    *x = rng.gen_range(-1.0..=1.0);
+                }
             }
+
+            layers.push(rules)
         }
 
-        Self(rules)
+        Self(layers)
     }
 
     fn crossover(&self, other: &NCARule) -> (NCARule, NCARule) {
@@ -159,11 +165,16 @@ impl NCARule {
             .iter()
             .zip(other.0.iter())
             .map(|(a, b)| {
-                if rng.gen_bool(0.5) {
-                    (*a, *b)
-                } else {
-                    (*b, *a)
-                }
+                a.iter()
+                    .zip(b.iter())
+                    .map(|(a, b)| {
+                        if rng.gen_bool(0.5) {
+                            (*a, *b)
+                        } else {
+                            (*b, *a)
+                        }
+                    })
+                    .unzip()
             })
             .unzip();
 

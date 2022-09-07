@@ -19,9 +19,10 @@ fn main() {
         })
         .insert_resource(NeuralCellularAutomataConfig {
             size: (SIZE.0, SIZE.1),
-            population_size: 4,
+            population_size: 8,
             num_variants: 2,
-            kernel_size: 31,
+            kernel_size: 23,
+            num_layers: 2,
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(NeuralCellularAutomataPlugin)
