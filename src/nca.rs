@@ -167,12 +167,17 @@ impl NCARule {
             .map(|(a, b)| {
                 a.iter()
                     .zip(b.iter())
-                    .map(|(a, b)| {
-                        if rng.gen_bool(0.5) {
-                            (*a, *b)
-                        } else {
-                            (*b, *a)
+                    .map(|(a, b)| match rng.gen_range(0..3) {
+                        0 => (*a, *b),
+                        1 => (*b, *a),
+                        2 => {
+                            let avg = (a + b) / 2.0;
+                            (
+                                (avg + rng.gen_range(-1.0..1.0)) / 2.0,
+                                (avg + rng.gen_range(-1.0..1.0)) / 2.0,
+                            )
                         }
+                        _ => unreachable!(),
                     })
                     .unzip()
             })
