@@ -59,17 +59,19 @@ fn setup(
 
     let render_resources = (0..config.num_variants)
         .map(|i| {
-            let front_buffer = generate_view_texture(config.size);
-            let front_buffer = images.add(front_buffer);
-            let back_buffer = generate_view_texture(config.size);
-            let back_buffer = images.add(back_buffer);
+            let buffers: Vec<_> = (0..(config.num_layers + 1))
+                .map(|_| {
+                    let buffer = generate_view_texture(config.size);
+                    images.add(buffer)
+                })
+                .collect();
             let sprite_entity = commands
                 .spawn_bundle(SpriteBundle {
                     sprite: Sprite {
                         custom_size: Some(Vec2::new(config.size.0 as f32, config.size.1 as f32)),
                         ..default()
                     },
-                    texture: front_buffer.clone(),
+                    texture: buffers.first().unwrap().clone(),
                     transform: Transform::from_translation(vec3(
                         -width / 4.0 + i as f32 * width / 2.0,
                         0.0,
@@ -89,8 +91,7 @@ fn setup(
                 rules.push(rules_image);
             }
             NeuralCellularAutomataState {
-                front_buffer,
-                back_buffer,
+                buffers,
                 sprite_entity,
                 rules,
             }
@@ -108,9 +109,9 @@ fn swap_buffers(
 ) {
     for res in render_resources.0.iter_mut() {
         let mut texture = textures.get_mut(res.sprite_entity).unwrap();
-        *texture = res.back_buffer.clone();
-        res.back_buffer = res.front_buffer.clone();
-        res.front_buffer = texture.clone();
+        *texture = res.buffers.last().unwrap().clone();
+        *res.buffers.last_mut().unwrap() = res.buffers.first().unwrap().clone();
+        *res.buffers.first_mut().unwrap() = texture.clone();
     }
 }
 
@@ -129,7 +130,7 @@ fn regenerate_world(
         let rule = &rules.rules()[*rule];
 
         let view = generate_view_texture(config.size);
-        state.front_buffer = images.set(&state.front_buffer, view);
+        *state.buffers.first_mut().unwrap() = images.set(state.buffers.first().unwrap(), view);
 
         for (rule_tex, rule) in state.rules.iter_mut().zip(rule.0.iter()) {
             let rules_image = generate_rules_texture(rule, config.kernel_size);
@@ -187,7 +188,7 @@ fn generate_rules_texture(rules: &[f32], kernel_size: usize) -> Image {
 
 pub struct NeuralCellularAutomataPipeline {
     texture_bind_group_layout: BindGroupLayout,
-    pipelines: Vec<CachedComputePipelineId>,
+    pipelines: Vec<Vec<CachedComputePipelineId>>,
 }
 
 fn should_setup_render(world: &World) -> ShouldRun {
@@ -244,13 +245,17 @@ fn setup_render(
     let shader = asset_server.load("shaders/layer.wgsl");
     let pipelines = (0..config.num_variants)
         .map(|_| {
-            pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-                label: None,
-                layout: Some(vec![texture_bind_group_layout.clone()]),
-                shader: shader.clone(),
-                shader_defs: vec![],
-                entry_point: Cow::from("update"),
-            })
+            (0..config.num_layers)
+                .map(|_| {
+                    pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                        label: None,
+                        layout: Some(vec![texture_bind_group_layout.clone()]),
+                        shader: shader.clone(),
+                        shader_defs: vec![],
+                        entry_point: Cow::from("update"),
+                    })
+                })
+                .collect()
         })
         .collect();
 
@@ -265,13 +270,12 @@ struct NeuralCellularAutomataRenderResources(Vec<NeuralCellularAutomataState>);
 
 #[derive(Clone)]
 struct NeuralCellularAutomataState {
-    front_buffer: Handle<Image>,
-    back_buffer: Handle<Image>,
+    buffers: Vec<Handle<Image>>,
     sprite_entity: Entity,
     rules: Vec<Handle<Image>>,
 }
 
-struct NeuralCellularAutomataImageBindGroup(Vec<BindGroup>);
+struct NeuralCellularAutomataImageBindGroup(Vec<Vec<BindGroup>>);
 
 fn queue_bind_group(
     mut commands: Commands,
@@ -285,27 +289,36 @@ fn queue_bind_group(
             .0
             .iter()
             .map(|res| {
-                let front_buffer = &gpu_images[&res.front_buffer];
-                let back_buffer = &gpu_images[&res.back_buffer];
-                let rules_layer_0 = &gpu_images[&res.rules[0]];
-                render_device.create_bind_group(&BindGroupDescriptor {
-                    label: None,
-                    layout: &pipeline.texture_bind_group_layout,
-                    entries: &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: BindingResource::TextureView(&front_buffer.texture_view),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: BindingResource::TextureView(&rules_layer_0.texture_view),
-                        },
-                        BindGroupEntry {
-                            binding: 2,
-                            resource: BindingResource::TextureView(&back_buffer.texture_view),
-                        },
-                    ],
-                })
+                res.rules
+                    .iter()
+                    .zip(res.buffers.windows(2))
+                    .map(|(rule, buffers)| {
+                        render_device.create_bind_group(&BindGroupDescriptor {
+                            label: None,
+                            layout: &pipeline.texture_bind_group_layout,
+                            entries: &[
+                                BindGroupEntry {
+                                    binding: 0,
+                                    resource: BindingResource::TextureView(
+                                        &gpu_images[&buffers[0]].texture_view,
+                                    ),
+                                },
+                                BindGroupEntry {
+                                    binding: 1,
+                                    resource: BindingResource::TextureView(
+                                        &gpu_images[rule].texture_view,
+                                    ),
+                                },
+                                BindGroupEntry {
+                                    binding: 2,
+                                    resource: BindingResource::TextureView(
+                                        &gpu_images[&buffers[1]].texture_view,
+                                    ),
+                                },
+                            ],
+                        })
+                    })
+                    .collect()
             })
             .collect(),
     ));
@@ -336,7 +349,7 @@ impl render_graph::Node for NeuralCellularAutomataNode {
         // if the corresponding pipeline has loaded, transition to the next stage
         match self.state {
             NeuralCellularAutomataNodeState::Loading => {
-                let ready = pipeline.pipelines.iter().all(|p| {
+                let ready = pipeline.pipelines.iter().flatten().all(|p| {
                     matches!(
                         pipeline_cache.get_compute_pipeline_state(*p),
                         CachedPipelineState::Ok(_),
@@ -366,19 +379,21 @@ impl render_graph::Node for NeuralCellularAutomataNode {
         let pipeline = world.resource::<NeuralCellularAutomataPipeline>();
         let config = world.resource::<NeuralCellularAutomataConfig>();
 
-        for (i, p) in pipeline.pipelines.iter().enumerate() {
-            let mut pass = render_context
-                .command_encoder
-                .begin_compute_pass(&ComputePassDescriptor::default());
-            pass.set_bind_group(0, &texture_bind_groups.0[i], &[]);
+        for (variant, p) in pipeline.pipelines.iter().enumerate() {
+            for (layer, p) in p.iter().enumerate() {
+                let mut pass = render_context
+                    .command_encoder
+                    .begin_compute_pass(&ComputePassDescriptor::default());
+                pass.set_bind_group(0, &texture_bind_groups.0[variant][layer], &[]);
 
-            let update_pipeline = pipeline_cache.get_compute_pipeline(*p).unwrap();
-            pass.set_pipeline(update_pipeline);
-            pass.dispatch_workgroups(
-                config.size.0 / WORKGROUP_SIZE,
-                config.size.1 / WORKGROUP_SIZE,
-                1,
-            );
+                let update_pipeline = pipeline_cache.get_compute_pipeline(*p).unwrap();
+                pass.set_pipeline(update_pipeline);
+                pass.dispatch_workgroups(
+                    config.size.0 / WORKGROUP_SIZE,
+                    config.size.1 / WORKGROUP_SIZE,
+                    1,
+                );
+            }
         }
 
         Ok(())

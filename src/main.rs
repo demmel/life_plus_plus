@@ -21,8 +21,8 @@ fn main() {
             size: (SIZE.0, SIZE.1),
             population_size: 8,
             num_variants: 2,
-            kernel_size: 23,
-            num_layers: 2,
+            kernel_size: 13,
+            num_layers: 5,
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(NeuralCellularAutomataPlugin)
