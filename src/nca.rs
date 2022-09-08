@@ -173,8 +173,8 @@ impl NCARule {
                         2 => {
                             let avg = (a + b) / 2.0;
                             (
-                                (avg + rng.gen_range(-1.0..1.0)) / 2.0,
-                                (avg + rng.gen_range(-1.0..1.0)) / 2.0,
+                                (avg + rng.gen_range(-0.01..0.01)),
+                                (avg + rng.gen_range(-0.01..0.01)),
                             )
                         }
                         _ => unreachable!(),

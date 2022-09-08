@@ -7,7 +7,7 @@ edition = "2021"
 editor = ["dep:bevy_editor_pls"]
 
 [dependencies]
-bevy = { version = "0.8.1", features = ["dynamic"] }
+bevy = { version = "0.8.1" }
 bevy_editor_pls = { version = "0.1.1", optional = true }
 rand = "0.8.5"
 
