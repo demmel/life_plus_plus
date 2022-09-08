@@ -2,6 +2,7 @@ mod nca;
 
 use bevy::{
     prelude::*,
+    render::settings::WgpuSettings,
     window::{WindowDescriptor, WindowMode},
 };
 use nca::{NeuralCellularAutomataConfig, NeuralCellularAutomataPlugin};
@@ -9,7 +10,7 @@ use nca::{NeuralCellularAutomataConfig, NeuralCellularAutomataPlugin};
 const SIZE: (u32, u32) = (760, 760);
 
 fn main() {
-    App::new()
+    bevy::render::settings::WgpuLimits::App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .insert_resource(WindowDescriptor {
             width: SIZE.0 as f32,
